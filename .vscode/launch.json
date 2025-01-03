@@ -1,0 +1,118 @@
+// {
+//     // Use IntelliSense to learn about possible attributes.
+//     // Hover to view descriptions of existing attributes.
+//     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+//     "version": "0.2.0",
+//     "configurations": [
+//         {
+//             "name": "Python Debugger: Current File",
+//             "type": "debugpy",
+//             "request": "launch",
+//             "program": "/opt/data/private/hhc/workdir/CogVLM2/haichen_demo/demo_video.py",
+//             "console": "integratedTerminal",
+//             // "console": "internalConsole" ,
+//             "justMyCode": false,
+//             "env": {
+//                 "PYTHONWARNINGS": "ignore",
+//                 "CUDA_VISIBLE_DEVICES": "0",
+//                 "PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "5"
+//             },
+//         }
+//     ]
+// }
+
+// {
+//     // Use IntelliSense to learn about possible attributes.
+//     // Hover to view descriptions of existing attributes.
+//     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+//     "version": "0.2.0",
+//     "configurations": [
+//         {
+//             "name": "Python Debugger: Current File",
+//             "type": "debugpy",
+//             "request": "launch",
+//             // "program": "/opt/data/private/hhc/workdir/Open-VCLIP/tools/run_net.py",
+//             "program": "/opt/data/private/hhc/workdir/CogVLM2/generate_prompts/tools/run_generate.py",
+//             "console": "integratedTerminal",
+//             // "console": "internalConsole" ,
+//             "justMyCode": true,
+//             "args": [
+//                 "--cfg", "/opt/data/private/hhc/workdir/Open-VCLIP/configs/Kinetics/CLIP_vitb16_8x16_STAdapter.yaml",
+//                 "--opts",
+//                 "DATA.PATH_TO_DATA_DIR", "/opt/data/private/hhc/workdir/CogVLM2/generate_prompts",
+//                 "DATA.PATH_PREFIX", "/opt/data/private/hhc/recognition/Datasets/kinetics400",
+//                 "DATA.PATH_LABEL_SEPARATOR", ",",
+//                 "DATA.INDEX_LABEL_MAPPING_FILE", "/opt/data/private/hhc/workdir/Open-VCLIP/label_db/k400-index2cls.json",
+//                 "TRAIN.ENABLE", "False",
+//                 "TRAIN.AUTO_RESUME", "False",
+//                 // "OUTPUT_DIR", "/opt/data/private/hhc/Open-VCLIP/save_ckpt/testing",
+//                 "TRAIN.BATCH_SIZE", "1",
+//                 "TEST.BATCH_SIZE", "32",
+//                 "TEST.NUM_ENSEMBLE_VIEWS", "3",
+//                 "TEST.NUM_SPATIAL_CROPS", "1",
+//                 "NUM_GPUS", "1",
+//                 "SOLVER.MAX_EPOCH", "15",
+//                 "TRAIN.MIXED_PRECISION", "True", 
+//                 "DATA.DECODING_BACKEND", "pyav",
+//                 "MODEL.NUM_CLASSES", "400", 
+//                 "MODEL.TEMPORAL_MODELING_TYPE", "None", 
+//                 "MIXUP.ENABLE", "False", 
+//                 "AUG.ENABLE", "False", 
+//                 "AUG.NUM_SAMPLE", "1", 
+//                 "TRAIN.EVAL_PERIOD", "1", 
+//                 "TRAIN.CHECKPOINT_PERIOD", "1", 
+//                 "MODEL.LOSS_FUNC", "soft_cross_entropy", 
+//                 "TRAIN.CLIP_ORI_PATH", "/opt/data/private/hhc/recognition/CLIP-models/ViT-B-16.pt",
+//                 "TRAIN.LINEAR_CONNECT_LOSS_RATIO", "0.5",
+//                 "TRAIN.LINEAR_CONNECT_SAMPLE_L", "0.0", 
+//                 "TRAIN.LINEAR_CONNECT_SAMPLE_R", "0.6",
+//                 "MODEL.KEEP_RAW_MODEL", "True"
+                
+//             ],
+//             "env": {
+//                 "PYTHONWARNINGS": "ignore",
+//                 "CUDA_VISIBLE_DEVICES": "0",
+//                 "PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "5"
+//             },
+//         }
+//     ]
+// }
+
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            // "program": "/opt/data/private/hhc/workdir/Open-VCLIP/tools/run_net.py",
+            "program": "/opt/data/private/hhc/workdir/CogVLM2/generate_prompts/tools/run_generate.py",
+            "console": "integratedTerminal",
+            // "console": "internalConsole" ,
+            "justMyCode": true,
+            "args": [
+                "--cfg", "/opt/data/private/hhc/workdir/CogVLM2/generate_prompts/TemporalCLIP_vitb16_8x16_STAdapter.yaml",
+                "--opts",
+                "DATA.PATH_TO_DATA_DIR", "/opt/data/private/hhc/workdir/CogVLM2/generate_prompts/split_1",
+                "OUTPUT_GENERATE_PROMPT", "/opt/data/private/hhc/workdir/CogVLM2/generate_prompts/split_1/split_1_prompts.json",
+                "TRAIN_FULL_FILE", "/opt/data/private/hhc/workdir/CogVLM2/generate_prompts/train_full.csv",
+                "DATA.PATH_PREFIX", "/opt/data/private/hhc/recognition/Datasets/kinetics400",
+                "DATA.PATH_LABEL_SEPARATOR", ",",
+                "TRAIN.ENABLE", "False",
+                "TRAIN.BATCH_SIZE", "1",
+                "NUM_GPUS", "1",
+                "DATA.DECODING_BACKEND", "pyav",
+                "AUG.ENABLE", "False", 
+                "AUG.NUM_SAMPLE", "1",     
+            ],
+            "env": {
+                "PYTHONWARNINGS": "ignore",
+                "CUDA_VISIBLE_DEVICES": "0",
+                "PYDEVD_WARN_SLOW_RESOLVE_TIMEOUT": "5"
+            },
+        }
+    ]
+}
