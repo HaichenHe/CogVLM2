@@ -45,15 +45,18 @@ class TemporalClipVideo(nn.Module):
         self.model.eval() 
         # self.raw_model.eval()
         
-        
         self.all_categories = self.get_all_categories(cfg) # list of all classes
-        # get standard prompt encode
-        self.txt_encode = self.get_standard_prompt_encode(self.all_categories) # num_classes, d
+
+        if not self.cfg.APPLY_DISTINGUISHING_PROMPT:
+            # get standard prompt encode
+            self.txt_encode = self.get_standard_prompt_encode(self.all_categories) # num_classes, d
 
 
         if self.training:
+            if self.cfg.APPLY_DISTINGUISHING_PROMPT:
+                self.txt_encode = self.get_distinguishing_prompt_encode(self.cfg) # num_classes, d
             # if apply category_generic_prompt
-            if self.cfg.APPLY_CATEGORY_GENERIC_PROMPT:
+            elif self.cfg.APPLY_CATEGORY_GENERIC_PROMPT:
                 category_generic_prompt = self.get_category_generic_prompt_encode(self.cfg) # (num_classes, P) [prompt_1, prompt2, ...., prompt_num_classes]
                 
                 # concact with standard_prompt
@@ -64,8 +67,11 @@ class TemporalClipVideo(nn.Module):
                 # self.txt_encode = (self.txt_encode + category_generic_prompt) / 2   # num_classes, d
                 # self.txt_encode = self.txt_encode * self.alpha + category_generic_prompt * self.beta   # num_classes, d
 
+
         else:
-            if self.cfg.APPLY_CATEGORY_GENERIC_PROMPT:
+            if self.cfg.APPLY_DISTINGUISHING_PROMPT:
+                self.txt_encode = self.get_distinguishing_prompt_encode(self.cfg) # num_classes, d
+            elif self.cfg.APPLY_CATEGORY_GENERIC_PROMPT:
                 # self.txt_encode = self.txt_encode.unsqueeze(1) # num_classes, 1, d
                 category_generic_prompt = self.get_category_generic_prompt_encode(self.cfg)
                 category_generic_prompt = category_generic_prompt.view(self.cfg.MODEL.NUM_CLASSES, self.cfg.CATEGORY_GENERIC_PROMPT_NUM, 512)
@@ -137,12 +143,21 @@ class TemporalClipVideo(nn.Module):
 
         return category_generic_prompt
     
-
+    def get_distinguishing_prompt_encode(self, cfg):
+        full_prompts = []
+        text_mapping = json.load(open(cfg.DISTINGUISHING_PROMPT_FILE, 'r'))
+        for category in self.all_categories:
+            distinguishing_prompt = text_mapping.get(category, "")
+            full_prompt = f"A video about {category}. {distinguishing_prompt}"
+            full_prompts.append(full_prompt)
+        
+        full_prompts= self.cache_text(full_prompts)
+        return full_prompts
 
     def get_standard_prompt_encode(self, categories):
         # standard_prompt = '{}'
         # standard_prompt = 'A video of a person {}.'
-        standard_prompt = 'This is a video about {}.'
+        standard_prompt = 'A video about {}.'
         standard_prompt = [standard_prompt.format(category) for category in categories]
         # standard_prompt = self.text_tokenize(standard_prompt).cuda()
         standard_prompt_encode = self.cache_text(standard_prompt) # num_classes, d
@@ -244,7 +259,7 @@ class TemporalClipVideo(nn.Module):
          
         if self.training:
             # txt_encode.shape = num_classes, P+1, d
-            txt_encode = self.txt_encode.mean(1) # num_classes, d
+            # txt_encode = self.txt_encode.mean(1) # num_classes, d
             img_encode = img_encode / img_encode.norm(dim=-1, keepdim=True)
             txt_encode = self.txt_encode / self.txt_encode.norm(dim=-1, keepdim=True)
             
@@ -255,8 +270,8 @@ class TemporalClipVideo(nn.Module):
 
         else:
             # txt_encode.shape = num_classes, P+1, d
-            txt_encode = self.txt_encode.mean(1) # num_classes, d
-            img_encode = img_encode / img_encode.norm(dim=-1, keepdim=True)
+            # txt_encode = self.txt_encode.mean(1) # num_classes, d
+            img_encode /= img_encode.norm(dim=-1, keepdim=True)
             txt_encode = self.txt_encode / self.txt_encode.norm(dim=-1, keepdim=True)
 
             pred = self.model.logit_scale.exp() * img_encode @ txt_encode.T
