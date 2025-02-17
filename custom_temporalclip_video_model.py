@@ -44,40 +44,40 @@ class TemporalClipVideo(nn.Module):
         self._construct_network(cfg)
         self.model.eval() 
         # self.raw_model.eval()
+
+        if self.cfg.APPLY_VIDEO_DESCRIPTION:
+            with open(self.cfg.VIDEO_DESCRIPTION_FILE, 'r') as f:
+                self.video_descriptions = json.load(f)
+            self.video_descriptions_list = list(self.video_descriptions.values()) #234584
         
         self.all_categories = self.get_all_categories(cfg) # list of all classes
 
-        if not self.cfg.APPLY_DISTINGUISHING_PROMPT:
-            # get standard prompt encode
-            self.txt_encode = self.get_standard_prompt_encode(self.all_categories) # num_classes, d
-
+        # if not self.cfg.APPLY_DISTINGUISHING_PROMPT:
+        #     # get standard prompt encode
+        #     self.txt_encode = self.get_standard_prompt_encode(self.all_categories) # num_classes, d
+        # self.txt_encode = self.get_standard_prompt_encode(self.all_categories) # num_classes, d
 
         if self.training:
             if self.cfg.APPLY_DISTINGUISHING_PROMPT:
                 self.txt_encode = self.get_distinguishing_prompt_encode(self.cfg) # num_classes, d
             # if apply category_generic_prompt
-            elif self.cfg.APPLY_CATEGORY_GENERIC_PROMPT:
+            if self.cfg.APPLY_CATEGORY_GENERIC_PROMPT:
                 category_generic_prompt = self.get_category_generic_prompt_encode(self.cfg) # (num_classes, P) [prompt_1, prompt2, ...., prompt_num_classes]
-                
-                # concact with standard_prompt
-                self.txt_encode = self.txt_encode.unsqueeze(1) # num_classes, 1, d
                 category_generic_prompt = category_generic_prompt.view(self.cfg.MODEL.NUM_CLASSES, self.cfg.CATEGORY_GENERIC_PROMPT_NUM, 512) # num_classes, P, d
-                # category_generic_prompt = category_generic_prompt.mean(1) # num_classes, d
-                self.txt_encode = torch.cat((self.txt_encode, category_generic_prompt), dim=1)   # num_classes, P+1, d
-                # self.txt_encode = (self.txt_encode + category_generic_prompt) / 2   # num_classes, d
-                # self.txt_encode = self.txt_encode * self.alpha + category_generic_prompt * self.beta   # num_classes, d
+                category_generic_prompt = category_generic_prompt.mean(1) # num_classes, d
+                self.txt_encode = (self.txt_encode + category_generic_prompt) / 2   # num_classes, d
+
 
 
         else:
             if self.cfg.APPLY_DISTINGUISHING_PROMPT:
                 self.txt_encode = self.get_distinguishing_prompt_encode(self.cfg) # num_classes, d
             elif self.cfg.APPLY_CATEGORY_GENERIC_PROMPT:
-                # self.txt_encode = self.txt_encode.unsqueeze(1) # num_classes, 1, d
-                category_generic_prompt = self.get_category_generic_prompt_encode(self.cfg)
-                category_generic_prompt = category_generic_prompt.view(self.cfg.MODEL.NUM_CLASSES, self.cfg.CATEGORY_GENERIC_PROMPT_NUM, 512)
-                # category_generic_prompt = category_generic_prompt.mean(1)
-                self.txt_encode = torch.cat((self.txt_encode, category_generic_prompt), dim=1)   # num_classes, P+1, d
-                # self.txt_encode = self.txt_encode * self.alpha + category_generic_prompt * self.beta
+                category_generic_prompt = self.get_category_generic_prompt_encode(self.cfg) # (num_classes, P) [prompt_1, prompt2, ...., prompt_num_classes]
+                category_generic_prompt = category_generic_prompt.view(self.cfg.MODEL.NUM_CLASSES, self.cfg.CATEGORY_GENERIC_PROMPT_NUM, 512) # num_classes, P, d
+                category_generic_prompt = category_generic_prompt.mean(1) # num_classes, d
+                self.txt_encode = (self.txt_encode + category_generic_prompt) / 2   # num_classes, d
+
         
         
         
@@ -115,6 +115,9 @@ class TemporalClipVideo(nn.Module):
         return all_categories
     
 
+    def text_tokenize(self, categories):
+        texts = torch.cat([clip.tokenize(category) for category in categories])
+        return texts
 
     
     def cache_text(self, text):
@@ -162,15 +165,20 @@ class TemporalClipVideo(nn.Module):
         # standard_prompt = self.text_tokenize(standard_prompt).cuda()
         standard_prompt_encode = self.cache_text(standard_prompt) # num_classes, d
         return standard_prompt_encode
-    
 
 
-    def text_tokenize(self, categories):
-        texts = torch.cat([clip.tokenize(category) for category in categories])
-        return texts
-    
 
+    def get_video_description(self, txt_encode, labels, index):
+        # txt_encode: b, n_cls, d
+        # labels: b
+        # index: b
+        video_description = [self.video_descriptions_list[i] for i in index] #b
+        video_description = self.cache_text(video_description) # b, d
 
+        for i in range(len(labels)):
+            txt_encode[i, labels[i]] += video_description[i]
+        
+        return txt_encode # b, n_cls, d
 
 
     def _construct_network(self, cfg):
@@ -237,8 +245,10 @@ class TemporalClipVideo(nn.Module):
     
     
 
-    def forward(self, x=None, update=False):
+    def forward(self, x=None, labels=None, index=None):
         # shape of x(input) is (bz, channel, clip_len, h, w)
+        # labels is the index of the class, len(labels) = bz
+        # index is the index of the video, len(index) = bz
 
         assert len(x) == self.num_pathways
         x = x[0]
@@ -258,27 +268,42 @@ class TemporalClipVideo(nn.Module):
         img_encode = self.model.encode_image(x)        
          
         if self.training:
-            # txt_encode.shape = num_classes, P+1, d
-            # txt_encode = self.txt_encode.mean(1) # num_classes, d
+            img_encode = img_encode.reshape(bz, clip_len, -1) #b,t,d
+            img_encode = img_encode.mean(1) #b,d
             img_encode = img_encode / img_encode.norm(dim=-1, keepdim=True)
-            txt_encode = self.txt_encode / self.txt_encode.norm(dim=-1, keepdim=True)
-            
-            pred = self.model.logit_scale.exp() * img_encode @ txt_encode.T
-            pred = pred.reshape(bz, clip_len, -1).mean(1)
+
+            if self.cfg.APPLY_VIDEO_DESCRIPTION:
+                txt_encode = self.txt_encode.unsqueeze(0).expand(bz, -1, -1)  #(b, n_cls, d)
+                txt_encode = self.get_video_description(txt_encode, labels, index) # b, n_cls, d
+
+
+            txt_encode = txt_encode / txt_encode.norm(dim=-1, keepdim=True) # num_classes, d
+
+            pred = torch.einsum('bd,bnd->bn', img_encode, txt_encode) # b, n_cls
+            pred = self.model.logit_scale.exp() * pred # b, n_cls
+            # pred = pred.reshape(bz, clip_len, -1).mean(1)
             
             return pred
 
         else:
-            # txt_encode.shape = num_classes, P+1, d
-            # txt_encode = self.txt_encode.mean(1) # num_classes, d
-            img_encode /= img_encode.norm(dim=-1, keepdim=True)
-            txt_encode = self.txt_encode / self.txt_encode.norm(dim=-1, keepdim=True)
+            img_encode = img_encode.reshape(bz, clip_len, -1) #b,t,d
+            img_encode = img_encode.mean(1) #b,d
+            img_encode = img_encode / img_encode.norm(dim=-1, keepdim=True)
 
-            pred = self.model.logit_scale.exp() * img_encode @ txt_encode.T
-            pred = pred.reshape(bz, clip_len, -1).mean(1)
+            if self.cfg.APPLY_VIDEO_DESCRIPTION:
+                txt_encode = self.txt_encode.unsqueeze(0).expand(bz, -1, -1)  #(b, n_cls, d)
+                txt_encode = self.get_video_description(txt_encode, labels, index) # b, n_cls, d
+
+
+            txt_encode = txt_encode / txt_encode.norm(dim=-1, keepdim=True) # num_classes, d
+
+            pred = torch.einsum('bd,bnd->bn', img_encode, txt_encode) # b, n_cls
             
+            pred = self.model.logit_scale.exp() * pred # b, n_cls
+            # pred = pred.reshape(bz, clip_len, -1).mean(1)
             
-            return pred 
+            return pred
+
     
     
 
