@@ -50,13 +50,16 @@ class TemporalClipVideo(nn.Module):
                 self.video_descriptions = json.load(f)
             self.video_descriptions_list = list(self.video_descriptions.values()) #234584
         
+        if self.cfg.APPLY_WEIGHT_FRAMES:
+            with open(self.cfg.TEMPORAL_SALIENCY_FILE, 'r') as f:
+                temporal_saliency = json.load(f)
+            self.temporal_saliency_list = list(temporal_saliency.values()) #234584
+        
         self.all_categories = self.get_all_categories(cfg) # list of all classes
-        self.origin_category_encode = self.cache_text(self.all_categories) # num_classes, d
 
-
-        # if not self.cfg.APPLY_DISTINGUISHING_PROMPT:
-        #     # get standard prompt encode
-        #     self.txt_encode = self.get_standard_prompt_encode(self.all_categories) # num_classes, d
+        if not self.cfg.APPLY_DISTINGUISHING_PROMPT:
+            # get standard prompt encode
+            self.txt_encode = self.get_standard_prompt_encode(self.all_categories) # num_classes, d
         # self.txt_encode = self.get_standard_prompt_encode(self.all_categories) # num_classes, d
 
         if self.training:
@@ -170,17 +173,15 @@ class TemporalClipVideo(nn.Module):
 
 
 
-    def get_video_description(self, txt_encode, labels, index):
-        # txt_encode: b, n_cls, d
-        # labels: b
-        # index: b
+    def get_video_description(self, index):
         video_description = [self.video_descriptions_list[i] for i in index] #b
         video_description = self.cache_text(video_description) # b, d
-
-        for i in range(len(labels)):
-            txt_encode[i, labels[i]] += video_description[i]
-        
-        return txt_encode # b, n_cls, d
+        return video_description # b,d
+    
+    def get_temporal_saliency(self, index):
+        temporal_saliency = [self.temporal_saliency_list[i] for i in index]
+        temporal_saliency = torch.tensor(temporal_saliency).cuda() # b, t
+        return temporal_saliency # b,t
 
 
     def _construct_network(self, cfg):
@@ -267,50 +268,43 @@ class TemporalClipVideo(nn.Module):
         x = x.reshape(bz*clip_len, channel_dim, h, w)
          
        
-        img_encode = self.model.encode_image(x)        
+        img_encode = self.model.encode_image(x) 
          
         if self.training:
             img_encode = img_encode.reshape(bz, clip_len, -1) #b,t,d
-            img_encode = img_encode.mean(1) #b,d
-            img_encode = img_encode / img_encode.norm(dim=-1, keepdim=True)
-            txt_encode1 = self.txt_encode / self.txt_encode.norm(dim=-1, keepdim=True) # num_classes, d
-            pred1 = torch.einsum('bd, nd->bn', img_encode, txt_encode1) # b, n_cls
+            img_encode = img_encode / img_encode.norm(dim=-1, keepdim=True) # b,t,d
+            mean_video_encode = img_encode.mean(1) #b,d
+            txt_encode = self.txt_encode / self.txt_encode.norm(dim=-1, keepdim=True) # num_classes, d
+            pred1 = mean_video_encode @ txt_encode.T # b, n_cls
             pred1 = self.model.logit_scale.exp() * pred1 # b, n_cls
 
 
             if self.cfg.APPLY_VIDEO_DESCRIPTION:
-                txt_encode2 = self.origin_category_encode.unsqueeze(0).expand(bz, -1, -1)  #(b, n_cls, d)
-                txt_encode2 = self.get_video_description(txt_encode2, labels, index) # b, n_cls, d
-                txt_encode2 = txt_encode2 / txt_encode2.norm(dim=-1, keepdim=True) # num_classes, d
+                video_description_encode = self.get_video_description(index) # b,d
+                video_description_encode = video_description_encode / video_description_encode.norm(dim=-1, keepdim=True) # b,d
 
-                pred2 = torch.einsum('bd,bnd->bn', img_encode, txt_encode2) # b, n_cls
-                pred2 = self.model.logit_scale.exp() * pred2 # b, n_cls
-            
+                if self.cfg.APPLY_WEIGHT_FRAMES:
+                    temporal_saliency = self.get_temporal_saliency(index) # b,t
+                    weighted_video_encode = torch.einsum('btd,bt->bd', img_encode, temporal_saliency) # b,d
+                    pred2 = weighted_video_encode @ video_description_encode.T # b,b
+                    pred2 = self.model.logit_scale.exp() * pred2 # b, n_cls
+                else:
+                    pred2 = mean_video_encode @ video_description_encode.T
+                    pred2 = self.model.logit_scale.exp() * pred2
                 return pred1, pred2
             else:
                 return pred1
-            
+
 
         else:
             img_encode = img_encode.reshape(bz, clip_len, -1) #b,t,d
-            img_encode = img_encode.mean(1) #b,d
-            img_encode = img_encode / img_encode.norm(dim=-1, keepdim=True)
-            txt_encode1 = self.txt_encode / self.txt_encode.norm(dim=-1, keepdim=True) # num_classes, d
-            pred1 = torch.einsum('bd, nd->bn', img_encode, txt_encode1) # b, n_cls
+            img_encode = img_encode / img_encode.norm(dim=-1, keepdim=True) # b,t,d
+            mean_video_encode = img_encode.mean(1) #b,d
+            txt_encode = self.txt_encode / self.txt_encode.norm(dim=-1, keepdim=True) # num_classes, d
+            pred1 = mean_video_encode @ txt_encode.T # b, n_cls
             pred1 = self.model.logit_scale.exp() * pred1 # b, n_cls
 
-
-            if self.cfg.APPLY_VIDEO_DESCRIPTION:
-                txt_encode2 = self.origin_category_encode.unsqueeze(0).expand(bz, -1, -1)  #(b, n_cls, d)
-                txt_encode2 = self.get_video_description(txt_encode2, labels, index) # b, n_cls, d
-                txt_encode2 = txt_encode2 / txt_encode2.norm(dim=-1, keepdim=True) # num_classes, d
-
-                pred2 = torch.einsum('bd,bnd->bn', img_encode, txt_encode2) # b, n_cls
-                pred2 = self.model.logit_scale.exp() * pred2 # b, n_cls
-            
-                return pred1, pred2
-            else:
-                return pred1
+            return pred1
 
     
     
